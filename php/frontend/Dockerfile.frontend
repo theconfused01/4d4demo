@@ -1,0 +1,10 @@
+FROM httpd:alpine
+
+# Install debug tools
+RUN apk update \
+    && apk add --no-cache netcat-openbsd \
+    && apk add --no-cache mysql-client
+
+# Copy local files to container
+COPY index.html /usr/local/apache2/htdocs/
+COPY script.js /usr/local/apache2/htdocs/

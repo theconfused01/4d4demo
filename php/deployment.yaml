@@ -1,0 +1,277 @@
+################################################################
+# For production development on GCP (GKE)
+################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  MYSQL_DATABASE: "user_management"
+  MYSQL_SERVER_URL: "backend-db-service"
+  MYSQL_PORT: "3306"
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secret
+type: Opaque
+data:
+  MYSQL_USER: "cm9vdA==" # echo -n "root" | base64
+  MYSQL_PASSWORD: "MTIzNDU=" # echo -n "12345" | base64
+
+---
+
+################################################################
+# backend-db
+################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-db-deployment
+  labels:
+    app: backend-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend-db
+  template:
+    metadata:
+      labels:
+        app: backend-db
+    spec:
+      containers:
+      - name: backend-db
+        image: mysql:latest
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-secret
+              key: MYSQL_PASSWORD
+        - name: MYSQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: MYSQL_DATABASE
+        volumeMounts:
+        - name: backend-db-volume
+          mountPath: /var/lib/mysql
+        - name: backend-db-init-volume
+          mountPath: /docker-entrypoint-initdb.d/init.sql
+      volumes:
+      - name: backend-db-volume
+        persistentVolumeClaim:
+          claimName: backend-db-pvc
+      - name: backend-db-init-volume
+        configMap:
+          name: backend-db-init-sql
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-db-service
+spec:
+  selector:
+    app: backend-db
+
+  # Ouvre automatiquement un port externe pour accéder au service sur GKE
+  # Dangereux pour la sécurité, mais nécessaire pour les tests
+  # type: LoadBalancer
+
+  # Une fois les tests terminés, rétablir le type ClusterIP
+  # Afin que le service ne soit pas accessible de l'extérieur de GKE
+  type: ClusterIP
+
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
+
+---
+
+# Supprimer PersistentVolume, automatiquement créé par le PersistentVolumeClaim sur GCP
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-db-pvc
+spec:
+
+  # Supprimer PersistentVolume, automatiquement créé par le PersistentVolumeClaim sur GCP
+  # volumeName: backend-db-pv
+
+  resources:
+    requests:
+      storage: 512Mi 
+  accessModes:
+    - ReadWriteOnce
+
+  # GCP utilise le nom standard par défaut
+  storageClassName: standard 
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-db-init-sql
+data:
+  init.sql: |
+    CREATE DATABASE IF NOT EXISTS user_management;
+    USE user_management;
+
+    -- Create users table
+    CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50) NOT NULL,
+        email VARCHAR(100) NOT NULL
+    );
+
+    -- Insert sample data
+    INSERT INTO users (username, email) VALUES
+        ('Alan', 'alan@cstj.qc.ca'),
+        ('Bob', 'bob@cstj.qc.ca'),
+        ('Carl', 'carl@cstj.qc.ca');
+
+---
+
+################################################################
+# backend
+################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+  labels:
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+
+        # Image doit être tirée du Artifact Registry 
+        # REGION-docker.pkg.dev/PROJECT-ID/REPOSITORY-ID/IMAGE:TAG
+        image: us-east1-docker.pkg.dev/d4-h24/production/php-backend:latest
+
+        ports:
+        - containerPort: 80
+        env:
+        - name: MYSQL_SERVER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: MYSQL_SERVER_URL
+        - name: MYSQL_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: MYSQL_PORT
+        - name: MYSQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: backend-config
+              key: MYSQL_DATABASE
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: backend-secret
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-secret
+              key: MYSQL_PASSWORD
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+
+  # Ouvre un port externe pour accéder au service sur GKE
+  # Dangereux pour la sécurité, mais nécessaire pour les tests
+  # type: LoadBalancer 
+
+  # Une fois les tests terminés, rétablir le type ClusterIP
+  # Afin que le service ne soit pas accessible de l'extérieur de GKE
+  type: ClusterIP
+
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+
+---
+
+################################################################
+# frontend
+################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+
+        # Image doit être tirée du Artifact Registry 
+        # REGION-docker.pkg.dev/PROJECT-ID/REPOSITORY-ID/IMAGE:TAG
+        image: us-east1-docker.pkg.dev/d4-h24/production/php-frontend:latest
+
+        ports:
+        - containerPort: 80
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend
+
+  # Ouvre un port externe pour accéder au service sur GKE  
+  type: LoadBalancer
+  
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+

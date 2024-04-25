@@ -1,0 +1,54 @@
+################################################################
+# For local development only, to debug Containers
+################################################################
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: front
+    ports:
+      - 7000:80
+    networks:
+      - net_frontend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend
+    ports:
+      - 9000:80
+    container_name: back
+    environment:
+      - MYSQL_SERVER_URL=backend-db
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=12345
+      - MYSQL_DATABASE=user_management
+    networks:
+      - net_frontend
+      - net_backend
+    depends_on:
+      - backend-db
+
+  backend-db:
+    image: mysql:latest
+    container_name: db
+    environment:
+      - MYSQL_ROOT_PASSWORD=12345
+      - MYSQL_DATABASE=user_management
+    ports:
+      - 3306:3306
+    volumes:
+      - db_php:/var/lib/mysql
+      - ./backend-db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - net_backend
+
+networks:
+  net_frontend:
+  net_backend:
+
+
+volumes:
+  db_php:

@@ -1,0 +1,14 @@
+################################################################
+# For production, to build images for Kubernetes
+################################################################
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend
